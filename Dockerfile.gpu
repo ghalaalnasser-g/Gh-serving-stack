@@ -1,0 +1,24 @@
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3.11 python3-pip python3.11-venv && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/python3.11 /usr/local/bin/python && \
+    ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+
+WORKDIR /app
+
+ENV PYTHONPATH=/app
+
+COPY app/requirements.txt ./requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
+
+EXPOSE 8000
+
+# تفريغ الـ ENTRYPOINT حتى لا يتجاهل أمر التشغيل
+ENTRYPOINT []
+
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
