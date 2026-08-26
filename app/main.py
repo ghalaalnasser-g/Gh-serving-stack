@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from schemas import (
+from app.schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Choice,
