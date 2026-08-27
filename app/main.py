@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -7,7 +6,7 @@ import time
 import uuid
 
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -22,10 +21,15 @@ from app.schemas import (
     Usage,
 )
 
+
 MODEL_ID = os.environ.get(
     "MODEL_ID",
     "Qwen/Qwen2.5-0.5B-Instruct"
 )
+
+# --- التعديل 1: قراءة المتغيرات البيئية الجديدة ---
+API_KEY = os.environ.get("API_KEY", "")
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "256"))
 
 app = FastAPI(
     title="serving-stack",
@@ -47,6 +51,21 @@ model.eval()
 print("Model ready")
 
 
+# --- التعديل 2: دالة التحقق من الـ Bearer API Key ---
+def verify_api_key(authorization: str = Header(None)):
+    if API_KEY:
+        if (
+            not authorization
+            or not authorization.startswith("Bearer ")
+            or authorization.split(" ")[1] != API_KEY
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized"
+            )
+
+
+# مسار /health يظل مفتوحاً للجميع (open)
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(
@@ -55,7 +74,12 @@ def health() -> HealthResponse:
     )
 
 
-@app.get("/v1/models", response_model=ModelList)
+# --- التعديل 3: حماية مسار /v1/models ---
+@app.get(
+    "/v1/models",
+    response_model=ModelList,
+    dependencies=[Depends(verify_api_key)]
+)
 def list_models() -> ModelList:
     return ModelList(
         data=[
@@ -79,13 +103,14 @@ def _build_inputs(req: ChatCompletionRequest):
 
 def _generate(
     input_ids,
-    req: ChatCompletionRequest
+    req: ChatCompletionRequest,
+    max_tokens_to_gen: int
 ):
     with torch.no_grad():
         out = model.generate(
             input_ids,
             attention_mask=torch.ones_like(input_ids),
-            max_new_tokens=req.max_tokens,
+            max_new_tokens=max_tokens_to_gen,
             do_sample=req.temperature > 0,
             temperature=(
                 req.temperature
@@ -98,9 +123,11 @@ def _generate(
     return out[0][input_ids.shape[1]:]
 
 
+# --- التعديل 4: حماية /v1/chat/completions وقص max_tokens ---
 @app.post(
     "/v1/chat/completions",
-    response_model=None
+    response_model=None,
+    dependencies=[Depends(verify_api_key)]
 )
 def chat_completions(
     req: ChatCompletionRequest
@@ -119,6 +146,9 @@ def chat_completions(
             },
         )
 
+    # قص max_tokens ليكون كحد أقصى MAX_TOKENS
+    effective_max_tokens = min(req.max_tokens, MAX_TOKENS)
+
     input_ids, prompt_tokens = _build_inputs(req)
 
     if req.stream:
@@ -130,7 +160,8 @@ def chat_completions(
 
     new_tokens = _generate(
         input_ids,
-        req
+        req,
+        effective_max_tokens
     )
 
     completion_tokens = int(
@@ -155,7 +186,7 @@ def chat_completions(
                 ),
                 finish_reason=(
                     "length"
-                    if completion_tokens >= req.max_tokens
+                    if completion_tokens >= effective_max_tokens
                     else "stop"
                 ),
             )
@@ -175,9 +206,11 @@ def _stream(
     prompt_tokens: int,
     req: ChatCompletionRequest
 ):
+    effective_max_tokens = min(req.max_tokens, MAX_TOKENS)
     new_tokens = _generate(
         input_ids,
-        req
+        req,
+        effective_max_tokens
     )
 
     cid = "chatcmpl-" + uuid.uuid4().hex
