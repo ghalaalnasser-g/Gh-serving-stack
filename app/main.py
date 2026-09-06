@@ -27,7 +27,7 @@ MODEL_ID = os.environ.get(
     "Qwen/Qwen2.5-0.5B-Instruct"
 )
 
-# --- التعديل 1: قراءة المتغيرات البيئية الجديدة ---
+
 API_KEY = os.environ.get("API_KEY", "")
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "256"))
 
@@ -51,7 +51,7 @@ model.eval()
 print("Model ready")
 
 
-# --- التعديل 2: دالة التحقق من الـ Bearer API Key ---
+
 def verify_api_key(authorization: str = Header(None)):
     if API_KEY:
         if (
@@ -65,7 +65,7 @@ def verify_api_key(authorization: str = Header(None)):
             )
 
 
-# مسار /health يظل مفتوحاً للجميع (open)
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(
@@ -74,7 +74,7 @@ def health() -> HealthResponse:
     )
 
 
-# --- التعديل 3: حماية مسار /v1/models ---
+
 @app.get(
     "/v1/models",
     response_model=ModelList,
@@ -97,6 +97,7 @@ def _build_inputs(req: ChatCompletionRequest):
         [m.model_dump() for m in req.messages],
         add_generation_prompt=True,
         return_tensors="pt",
+        return_dict=False,
     )
     return input_ids, input_ids.shape[1]
 
@@ -123,7 +124,7 @@ def _generate(
     return out[0][input_ids.shape[1]:]
 
 
-# --- التعديل 4: حماية /v1/chat/completions وقص max_tokens ---
+
 @app.post(
     "/v1/chat/completions",
     response_model=None,
@@ -146,7 +147,7 @@ def chat_completions(
             },
         )
 
-    # قص max_tokens ليكون كحد أقصى MAX_TOKENS
+    
     effective_max_tokens = min(req.max_tokens, MAX_TOKENS)
 
     input_ids, prompt_tokens = _build_inputs(req)
